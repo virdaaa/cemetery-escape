@@ -227,6 +227,7 @@ canvas {
             <div class="hud-right">
                 <div class="hud-label">ФОНАРИК</div>
                 <div class="battery-bar"><div class="battery-fill" id="battery-fill"></div></div>
+                <div class="hud-label" id="stones-label" style="color:#ffaa44;">🪨 5</div>
                 <div id="powerup-label" class="hud-label" style="color:#00ffcc;"></div>
             </div>
         </div>
@@ -237,8 +238,10 @@ canvas {
         <div class="menu-subtitle">ПЕТЕРБУРГ, 1986</div>
         <button class="menu-btn" id="btn-start">ИГРАТЬ</button>
         <div class="menu-hint">
-            ← → СТРЕЛКИ / СВАЙП<br>
-            ПРОБЕЛ — ПРЫЖОК
+            ← → ДВИЖЕНИЕ / СВАЙП<br>
+            ↑ ↓ СКОРОСТЬ<br>
+            ПРОБЕЛ — ПРЫЖОК<br>
+            Z — РОГАТКА / X — ВСПЫШКА
         </div>
     </div>
 
@@ -277,6 +280,7 @@ const menuScreen = document.getElementById('screen-menu');
 const gameoverScreen = document.getElementById('screen-gameover');
 const finalScoreEl = document.getElementById('final-score');
 const bestScoreEl = document.getElementById('best-score');
+const stonesLabel = document.getElementById('stones-label');
 
 // Audio context for retro sounds
 let audioCtx = null;
@@ -308,6 +312,8 @@ function playDeath() {
     setTimeout(() => playSound(200, 0.3, 'sawtooth', 0.2), 150);
     setTimeout(() => playSound(100, 0.5, 'sawtooth', 0.15), 350);
 }
+function playShoot() { playSound(600, 0.08, 'triangle', 0.12); playSound(400, 0.1, 'square', 0.08); }
+function playFlash() { playSound(1000, 0.15, 'square', 0.2); playSound(1200, 0.1, 'sine', 0.15); }
 function playPowerup() {
     [440,554,659,880].forEach((f,i) => setTimeout(() => playSound(f, 0.15, 'square', 0.12), i*80));
 }
@@ -330,6 +336,10 @@ let invincibleTimer = 0;
 let speedBoostTimer = 0;
 let flashTimer = 0;
 let scoreFrac = 0;
+let stones = 5;
+let flashCooldown = 0;
+let speedMultiplier = 1; // 1 = normal, 1.5 = accel, 0.4 = brake
+let lastTapTime = 0;
 
 // Try load best score
 try { bestScore = parseInt(localStorage.getItem('cemetery_best') || '0'); } catch(e) {}
@@ -359,6 +369,7 @@ let fogParticles = [];
 let stars = [];
 let roadMarkings = [];
 let trees = [];
+let projectiles = [];
 
 // Spawn timers
 let obstacleTimer = 0;
@@ -668,7 +679,7 @@ function drawPickup(x, y, type, phase) {
     // Glow
     ctx.save();
     ctx.globalAlpha = glow * 0.4;
-    ctx.fillStyle = type === 0 ? '#00ffcc' : type === 1 ? '#ff2d95' : '#ffaa00';
+    ctx.fillStyle = type === 0 ? '#00ffcc' : type === 1 ? '#ff2d95' : type === 2 ? '#ffaa00' : '#aa8855';
     ctx.beginPath();
     ctx.arc(bx, by, 18, 0, Math.PI * 2);
     ctx.fill();
@@ -703,7 +714,7 @@ function drawPickup(x, y, type, phase) {
         // Label
         ctx.fillStyle = '#fff';
         ctx.fillRect(bx - 6, by - 4, 12, 2);
-    } else {
+    } else if (type === 2) {
         // Cola can (speed boost)
         ctx.fillStyle = '#ff3300';
         ctx.fillRect(bx - 5, by - 9, 10, 18);
@@ -714,6 +725,20 @@ function drawPickup(x, y, type, phase) {
         // Tab
         ctx.fillStyle = '#ccc';
         ctx.fillRect(bx - 2, by - 11, 4, 3);
+    } else if (type === 3) {
+        // Stone pile
+        ctx.fillStyle = '#887766';
+        ctx.beginPath();
+        ctx.arc(bx - 4, by + 2, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#776655';
+        ctx.beginPath();
+        ctx.arc(bx + 4, by + 1, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#998877';
+        ctx.beginPath();
+        ctx.arc(bx, by - 4, 4, 0, Math.PI * 2);
+        ctx.fill();
     }
 }
 
@@ -939,10 +964,14 @@ function resetGame() {
     player.jumpVel = 0;
     player.lean = 0;
     player.pedalPhase = 0;
+    stones = 5;
+    flashCooldown = 0;
+    speedMultiplier = 1;
     obstacles = [];
     enemies = [];
     pickups = [];
     particles = [];
+    projectiles = [];
     trees = [];
     roadMarkings = [];
     obstacleTimer = 0;
@@ -993,9 +1022,10 @@ function spawnPickup() {
     const x = minX + Math.random() * (maxX - minX);
     const roll = Math.random();
     let type;
-    if (roll < 0.55) type = 0; // battery
-    else if (roll < 0.8) type = 1; // cassette
-    else type = 2; // cola
+    if (roll < 0.4) type = 0; // battery
+    else if (roll < 0.6) type = 1; // cassette
+    else if (roll < 0.75) type = 2; // cola
+    else type = 3; // stones
     pickups.push({ x, y: -20, type, phase: Math.random()*Math.PI*2, w: 20, h: 20 });
 }
 
@@ -1061,10 +1091,14 @@ function updateHUD() {
         livesEl.appendChild(span);
     }
 
+    stonesLabel.textContent = `🪨 ${stones}`;
+
     if (invincibleTimer > 0) {
         powerupLabel.textContent = '🎵 НЕУЯЗВИМ!';
     } else if (speedBoostTimer > 0) {
         powerupLabel.textContent = '⚡ УСКОРЕНИЕ!';
+    } else if (flashCooldown > 0) {
+        powerupLabel.textContent = `🔦 ${Math.ceil(flashCooldown / 60)}с`;
     } else {
         powerupLabel.textContent = '';
     }
@@ -1085,12 +1119,16 @@ function showToast(text) {
 const keys = {};
 let touchStartX = null;
 let touchMoveX = null;
+let touchStartY = null;
+let touchMoveY = null;
 
 document.addEventListener('keydown', e => {
     keys[e.code] = true;
-    if (e.code === 'Space' && state === 'playing') {
-        e.preventDefault();
-        tryJump();
+    if (state === 'playing') {
+        if (e.code === 'Space') { e.preventDefault(); tryJump(); }
+        if (e.code === 'KeyZ') { e.preventDefault(); shootStone(); }
+        if (e.code === 'KeyX') { e.preventDefault(); flashAbility(); }
+        if (e.code === 'ArrowUp' || e.code === 'ArrowDown') e.preventDefault();
     }
 });
 document.addEventListener('keyup', e => { keys[e.code] = false; });
@@ -1103,12 +1141,31 @@ wrapper.addEventListener('touchstart', e => {
     const t = e.touches[0];
     touchStartX = t.clientX;
     touchMoveX = t.clientX;
+    touchStartY = t.clientY;
+    touchMoveY = t.clientY;
 
-    // Tap to jump (double tap or top half)
-    const rect = wrapper.getBoundingClientRect();
-    const relY = (t.clientY - rect.top) / rect.height;
-    if (relY < 0.4 && state === 'playing') {
-        tryJump();
+    if (state === 'playing') {
+        const rect = wrapper.getBoundingClientRect();
+        const relX = (t.clientX - rect.left) / rect.width;
+        const relY = (t.clientY - rect.top) / rect.height;
+
+        // Double-tap detection for flash
+        const now = Date.now();
+        if (now - lastTapTime < 300) {
+            flashAbility();
+            lastTapTime = 0;
+        } else {
+            lastTapTime = now;
+        }
+
+        // Right half tap — shoot stone
+        if (relX > 0.5 && relY > 0.4) {
+            shootStone();
+        }
+        // Top area tap — jump
+        else if (relY < 0.4) {
+            tryJump();
+        }
     }
 }, { passive: false });
 
@@ -1116,12 +1173,16 @@ wrapper.addEventListener('touchmove', e => {
     e.preventDefault();
     if (e.touches.length > 0) {
         touchMoveX = e.touches[0].clientX;
+        touchMoveY = e.touches[0].clientY;
     }
 }, { passive: false });
 
 wrapper.addEventListener('touchend', e => {
     touchStartX = null;
     touchMoveX = null;
+    touchStartY = null;
+    touchMoveY = null;
+    speedMultiplier = 1;
 });
 
 function tryJump() {
@@ -1130,6 +1191,37 @@ function tryJump() {
         player.jumpVel = -12;
         playJump();
     }
+}
+
+function shootStone() {
+    if (stones <= 0) return;
+    stones--;
+    playShoot();
+    projectiles.push({
+        x: player.x,
+        y: player.y - player.jumpY - 30,
+        vy: -8,
+        size: 4
+    });
+    updateHUD();
+}
+
+function flashAbility() {
+    if (flashCooldown > 0 || battery < 20) return;
+    battery -= 20;
+    flashCooldown = 180; // 3 seconds at 60fps
+    flashTimer = 15;
+    playFlash();
+    // Destroy all ghosts on screen
+    enemies = enemies.filter(e => {
+        if (e.type === 'ghost') {
+            spawnHitParticles(e.x, e.y);
+            return false;
+        }
+        return true;
+    });
+    showToast('⚡ ВСПЫШКА!');
+    updateHUD();
 }
 
 function handleInput() {
@@ -1153,6 +1245,21 @@ function handleInput() {
             moving = true;
         }
         touchStartX = touchMoveX; // reset so dx doesn't accumulate
+    }
+
+    // Speed control (up/down)
+    speedMultiplier = 1;
+    if (keys['ArrowUp'] || keys['KeyW']) {
+        speedMultiplier = 1.5;
+    } else if (keys['ArrowDown'] || keys['KeyS']) {
+        speedMultiplier = 0.4;
+    }
+
+    // Vertical touch — swipe up = accelerate, down = brake
+    if (touchStartY !== null && touchMoveY !== null) {
+        const dy = touchStartY - touchMoveY; // positive = swiped up
+        if (dy > 30) speedMultiplier = 1.5;
+        else if (dy < -30) speedMultiplier = 0.4;
     }
 
     // Inertia
@@ -1192,7 +1299,7 @@ function update() {
 
     // Difficulty scaling — very slow, like Elektronika handheld
     difficulty = 1 + Math.floor(score / 500) * 0.1;
-    speed = Math.min(4, baseSpeed + (difficulty - 1) * 0.8) + (speedBoostTimer > 0 ? 2 : 0);
+    speed = (Math.min(4, baseSpeed + (difficulty - 1) * 0.8) + (speedBoostTimer > 0 ? 2 : 0)) * speedMultiplier;
 
     // Score — accumulate fractional points
     scoreFrac += speed * 0.5;
@@ -1211,6 +1318,7 @@ function update() {
     if (speedBoostTimer > 0) speedBoostTimer--;
     if (shakeTimer > 0) shakeTimer--;
     if (flashTimer > 0) flashTimer--;
+    if (flashCooldown > 0) flashCooldown--;
 
     handleInput();
 
@@ -1291,6 +1399,28 @@ function update() {
     });
     particles = particles.filter(p => p.life > 0);
 
+    // Update projectiles
+    projectiles.forEach(pr => { pr.y += pr.vy; });
+    projectiles = projectiles.filter(pr => pr.y > -20);
+
+    // Projectile-enemy collisions (stones kill zombies/skeletons/hands, NOT ghosts)
+    projectiles = projectiles.filter(pr => {
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            const e = enemies[i];
+            if (e.type === 'ghost') continue; // stones pass through ghosts
+            if (e.type === 'hand' && e.popTimer > 0) continue;
+            if (checkCollision(pr.x, pr.y, 6, 6, e.x, e.y, e.w, e.h)) {
+                spawnHitParticles(e.x, e.y);
+                playHit();
+                score += 50;
+                enemies.splice(i, 1);
+                showToast('+50');
+                return false;
+            }
+        }
+        return true;
+    });
+
     // COLLISIONS
     const px = player.x;
     const py = player.y - player.jumpY;
@@ -1331,11 +1461,15 @@ function update() {
                 spawnCollectParticles(p.x, p.y, '#ff2d95');
                 playPowerup();
                 showToast('🎵 НЕУЯЗВИМОСТЬ!');
-            } else {
+            } else if (p.type === 2) {
                 speedBoostTimer = 240; // 4 seconds
                 spawnCollectParticles(p.x, p.y, '#ffaa00');
                 playPowerup();
                 showToast('⚡ УСКОРЕНИЕ!');
+            } else if (p.type === 3) {
+                stones = Math.min(15, stones + 3);
+                spawnCollectParticles(p.x, p.y, '#aa8855');
+                showToast('🪨 +3 КАМНЯ');
             }
             return false;
         }
@@ -1399,6 +1533,18 @@ function render() {
         }});
     });
     pickups.forEach(p => allObjects.push({ y: p.y, draw: () => drawPickup(p.x, p.y, p.type, p.phase) }));
+
+    // Projectiles (stones)
+    projectiles.forEach(pr => {
+        ctx.fillStyle = '#aa8866';
+        ctx.beginPath();
+        ctx.arc(pr.x, pr.y, pr.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#887755';
+        ctx.beginPath();
+        ctx.arc(pr.x - 1, pr.y - 1, pr.size * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+    });
 
     // Sort by y
     allObjects.sort((a, b) => a.y - b.y);

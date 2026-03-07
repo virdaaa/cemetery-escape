@@ -322,7 +322,7 @@ let bestScore = 0;
 let lives = 3;
 let battery = 100;
 let speed = 3;
-let baseSpeed = 3;
+let baseSpeed = 1;
 let frameCount = 0;
 let difficulty = 1;
 let shakeTimer = 0;
@@ -395,40 +395,32 @@ function drawBike(px, py, lean, pedalPhase, jumpY, isInvincible) {
         ctx.fill();
     }
 
-    // Wheels
+    // Top-down bike: narrow oval wheels + vertical frame
     const wheelBob = Math.sin(pedalPhase * 8) * 1;
+
+    // Back wheel (narrow oval — top-down view)
     ctx.fillStyle = '#333';
     ctx.beginPath();
-    ctx.arc(px, y + 40 + wheelBob, 10, 0, Math.PI * 2);
+    ctx.ellipse(px, y + 40 + wheelBob, 5, 12, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.beginPath();
-    ctx.arc(px, y + 8, 10, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Wheel spokes
-    ctx.strokeStyle = '#666';
-    ctx.lineWidth = 1;
-    for (let i = 0; i < 4; i++) {
-        const a = pedalPhase * 3 + i * Math.PI / 2;
-        // Back wheel
-        ctx.beginPath();
-        ctx.moveTo(px + Math.cos(a) * 8, y + 40 + wheelBob + Math.sin(a) * 8);
-        ctx.lineTo(px - Math.cos(a) * 8, y + 40 + wheelBob - Math.sin(a) * 8);
-        ctx.stroke();
-        // Front wheel
-        ctx.beginPath();
-        ctx.moveTo(px + Math.cos(a) * 8, y + 8 + Math.sin(a) * 8);
-        ctx.lineTo(px - Math.cos(a) * 8, y + 8 - Math.sin(a) * 8);
-        ctx.stroke();
-    }
-
-    // Tire outlines
     ctx.strokeStyle = '#aaa';
     ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(px, y + 40 + wheelBob, 10, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(px, y + 8, 10, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(px, y + 40 + wheelBob, 5, 12, 0, 0, Math.PI * 2);
+    ctx.stroke();
 
-    // Frame
+    // Front wheel (narrow oval — top-down view)
+    ctx.fillStyle = '#333';
+    ctx.beginPath();
+    ctx.ellipse(px, y + 8, 5, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#aaa';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(px, y + 8, 5, 12, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Frame (vertical line connecting wheels)
     ctx.strokeStyle = '#ff2d95';
     ctx.lineWidth = 3;
     ctx.beginPath();
@@ -436,16 +428,19 @@ function drawBike(px, py, lean, pedalPhase, jumpY, isInvincible) {
     ctx.lineTo(px, y + 8);
     ctx.stroke();
 
-    // Handlebars
+    // Handlebars (short horizontal bar at front)
     ctx.strokeStyle = '#ccc';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(px - 10, y + 4);
-    ctx.lineTo(px + 10, y + 4);
+    ctx.moveTo(px - 8, y + 6);
+    ctx.lineTo(px + 8, y + 6);
     ctx.stroke();
 
-    // Seat
-    drawPixelRect(px - 5, y + 30 + wheelBob, 10, 4, '#333');
+    // Seat (small oval on top of back area)
+    ctx.fillStyle = '#555';
+    ctx.beginPath();
+    ctx.ellipse(px, y + 30 + wheelBob, 4, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
 
     // Rider body
     const bodyY = y + 16 + wheelBob;
@@ -930,7 +925,7 @@ function resetGame() {
     speedBoostTimer = 0;
     flashTimer = 0;
     player.x = W / 2;
-    player.y = H - 140;
+    player.y = H - 100;
     player.vx = 0;
     player.jumping = false;
     player.jumpY = 0;
@@ -963,19 +958,24 @@ function spawnObstacle() {
 }
 
 function spawnEnemy() {
+    if (score < 500) return; // No enemies below 500 points
     const minX = W * 0.2;
     const maxX = W * 0.8;
     const x = minX + Math.random() * (maxX - minX);
-    const roll = Math.random();
 
-    if (roll < 0.4) {
-        // Zombie
+    // Build pool of available enemy types based on score
+    const pool = [];
+    if (score >= 500) pool.push('zombie');
+    if (score >= 1000) pool.push('ghost');
+    if (score >= 1500) pool.push('hand');
+
+    const chosen = pool[Math.floor(Math.random() * pool.length)];
+
+    if (chosen === 'zombie') {
         enemies.push({ x, y: -30, type: 'zombie', subtype: Math.random() < 0.5 ? 0 : 1, vx: (Math.random()-0.5)*1, vy: speed * 0.3, phase: Math.random()*Math.PI*2, w: 20, h: 30 });
-    } else if (roll < 0.7) {
-        // Ghost
+    } else if (chosen === 'ghost') {
         enemies.push({ x, y: -30, type: 'ghost', vx: Math.sin(Math.random()*Math.PI*2)*2, vy: speed * 0.5, phase: Math.random()*Math.PI*2, w: 24, h: 30 });
-    } else {
-        // Gravehand (stationary hazard, pops up)
+    } else if (chosen === 'hand') {
         enemies.push({ x, y: -30, type: 'hand', vy: 0, phase: 0, w: 16, h: 20, popTimer: 60 });
     }
 }

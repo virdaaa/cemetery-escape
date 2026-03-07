@@ -329,6 +329,7 @@ let shakeTimer = 0;
 let invincibleTimer = 0;
 let speedBoostTimer = 0;
 let flashTimer = 0;
+let scoreFrac = 0;
 
 // Try load best score
 try { bestScore = parseInt(localStorage.getItem('cemetery_best') || '0'); } catch(e) {}
@@ -923,6 +924,7 @@ function resetGame() {
     lives = 3;
     battery = 100;
     speed = 0.8;
+    scoreFrac = 0;
     difficulty = 1;
     frameCount = 0;
     shakeTimer = 0;
@@ -1143,13 +1145,14 @@ function handleInput() {
         moving = true;
     }
 
-    // Touch movement
+    // Touch movement — use delta from last frame, not from start
     if (touchStartX !== null && touchMoveX !== null) {
         const dx = touchMoveX - touchStartX;
         if (Math.abs(dx) > 5) {
             player.vx += dx * 0.04;
             moving = true;
         }
+        touchStartX = touchMoveX; // reset so dx doesn't accumulate
     }
 
     // Inertia
@@ -1191,8 +1194,13 @@ function update() {
     difficulty = 1 + Math.floor(score / 500) * 0.1;
     speed = Math.min(4, baseSpeed + (difficulty - 1) * 0.8) + (speedBoostTimer > 0 ? 2 : 0);
 
-    // Score
-    score += Math.round(speed * 0.5);
+    // Score — accumulate fractional points
+    scoreFrac += speed * 0.5;
+    if (scoreFrac >= 1) {
+        const add = Math.floor(scoreFrac);
+        score += add;
+        scoreFrac -= add;
+    }
 
     // Battery drain
     battery -= 0.03 * difficulty;
@@ -1288,21 +1296,27 @@ function update() {
     const py = player.y - player.jumpY;
     const isJumping = player.jumpY > 15;
 
-    // Obstacle collisions (can jump over)
-    obstacles.forEach(o => {
+    // Obstacle collisions (can jump over) — only one hit per frame
+    for (let i = 0; i < obstacles.length; i++) {
+        if (invincibleTimer > 0) break;
+        const o = obstacles[i];
         if (!isJumping && checkCollision(px, py, 20, 30, o.x, o.y, o.w - 8, o.h - 10)) {
             hitPlayer();
+            break;
         }
-    });
+    }
 
-    // Enemy collisions
-    enemies.forEach(e => {
-        if (e.type === 'hand' && e.popTimer > 0) return;
+    // Enemy collisions — only one hit per frame
+    for (let i = 0; i < enemies.length; i++) {
+        if (invincibleTimer > 0) break;
+        const e = enemies[i];
+        if (e.type === 'hand' && e.popTimer > 0) continue;
         const canJumpOver = e.type !== 'ghost';
         if ((!canJumpOver || !isJumping) && checkCollision(px, py, 18, 28, e.x, e.y, e.w, e.h)) {
             hitPlayer();
+            break;
         }
-    });
+    }
 
     // Pickup collisions
     pickups = pickups.filter(p => {
@@ -1453,12 +1467,6 @@ function render() {
 // MAIN LOOP
 // ========================================
 
-function gameLoop() {
-    update();
-    render();
-    requestAnimationFrame(gameLoop);
-}
-
 // ========================================
 // MENU / GAME STATE
 // ========================================
@@ -1480,36 +1488,10 @@ document.getElementById('btn-menu').addEventListener('click', () => {
     menuScreen.classList.remove('hidden');
 });
 
-// Menu background animation
-function menuBgLoop() {
-    if (state === 'menu') {
-        frameCount++;
-        fogParticles.forEach(f => {
-            f.x += f.speed;
-            if (f.x > W + f.size) f.x = -f.size;
-        });
-        stars.forEach(s => { s.twinkle += 0.02; });
-        drawBackground();
-    }
-}
-
 // Init
 initEnvironment();
 
-// Run the menu background
-function menuLoop() {
-    if (state === 'menu') {
-        frameCount++;
-        fogParticles.forEach(f => {
-            f.x += f.speed;
-            if (f.x > W + f.size) f.x = -f.size;
-        });
-        stars.forEach(s => { s.twinkle += 0.02; });
-        render();
-    }
-}
-
-// Combined loop
+// Main loop
 function mainLoop() {
     if (state === 'playing') {
         update();

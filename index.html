@@ -321,8 +321,8 @@ let score = 0;
 let bestScore = 0;
 let lives = 3;
 let battery = 100;
-let speed = 3;
-let baseSpeed = 1;
+let speed = 0.8;
+let baseSpeed = 0.8;
 let frameCount = 0;
 let difficulty = 1;
 let shakeTimer = 0;
@@ -395,91 +395,96 @@ function drawBike(px, py, lean, pedalPhase, jumpY, isInvincible) {
         ctx.fill();
     }
 
-    // Top-down bike: narrow oval wheels + vertical frame
+    // === TOP-DOWN BIKE ===
     const wheelBob = Math.sin(pedalPhase * 8) * 1;
 
-    // Back wheel (narrow oval — top-down view)
-    ctx.fillStyle = '#333';
+    // Back wheel (narrow vertical oval — top-down)
+    ctx.fillStyle = '#222';
     ctx.beginPath();
-    ctx.ellipse(px, y + 40 + wheelBob, 5, 12, 0, 0, Math.PI * 2);
+    ctx.ellipse(px, y + 42 + wheelBob, 3, 8, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#aaa';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.ellipse(px, y + 40 + wheelBob, 5, 12, 0, 0, Math.PI * 2);
+    ctx.ellipse(px, y + 42 + wheelBob, 3, 8, 0, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Front wheel (narrow oval — top-down view)
-    ctx.fillStyle = '#333';
+    // Front wheel (narrow vertical oval — top-down)
+    ctx.fillStyle = '#222';
     ctx.beginPath();
-    ctx.ellipse(px, y + 8, 5, 12, 0, 0, Math.PI * 2);
+    ctx.ellipse(px, y + 4, 3, 8, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#aaa';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.ellipse(px, y + 8, 5, 12, 0, 0, Math.PI * 2);
+    ctx.ellipse(px, y + 4, 3, 8, 0, 0, Math.PI * 2);
     ctx.stroke();
 
     // Frame (vertical line connecting wheels)
     ctx.strokeStyle = '#ff2d95';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(px, y + 40 + wheelBob);
-    ctx.lineTo(px, y + 8);
+    ctx.moveTo(px, y + 42 + wheelBob);
+    ctx.lineTo(px, y + 4);
     ctx.stroke();
 
-    // Handlebars (short horizontal bar at front)
+    // Handlebars (short horizontal bar at front wheel)
     ctx.strokeStyle = '#ccc';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(px - 8, y + 6);
-    ctx.lineTo(px + 8, y + 6);
+    ctx.moveTo(px - 7, y + 5);
+    ctx.lineTo(px + 7, y + 5);
     ctx.stroke();
 
-    // Seat (small oval on top of back area)
-    ctx.fillStyle = '#555';
-    ctx.beginPath();
-    ctx.ellipse(px, y + 30 + wheelBob, 4, 3, 0, 0, Math.PI * 2);
-    ctx.fill();
+    // Seat (small rectangle near back wheel)
+    ctx.fillStyle = '#553322';
+    ctx.fillRect(px - 4, y + 32 + wheelBob, 8, 5);
 
-    // Rider body
-    const bodyY = y + 16 + wheelBob;
-    // Legs (pedaling)
-    const legOffset = Math.sin(pedalPhase * 4) * 6;
+    // === TOP-DOWN RIDER ===
+    const legPhase = Math.sin(pedalPhase * 4) * 4;
+
+    // Legs along the frame (pedaling motion)
     ctx.strokeStyle = '#2244aa';
     ctx.lineWidth = 3;
+    // Left leg
     ctx.beginPath();
-    ctx.moveTo(px - 3, bodyY + 12);
-    ctx.lineTo(px - 3 + legOffset, bodyY + 22);
+    ctx.moveTo(px - 4, y + 28);
+    ctx.lineTo(px - 5 - legPhase * 0.3, y + 38 + legPhase);
     ctx.stroke();
+    // Right leg
     ctx.beginPath();
-    ctx.moveTo(px + 3, bodyY + 12);
-    ctx.lineTo(px + 3 - legOffset, bodyY + 22);
+    ctx.moveTo(px + 4, y + 28);
+    ctx.lineTo(px + 5 + legPhase * 0.3, y + 38 - legPhase);
     ctx.stroke();
 
-    // Torso
-    drawPixelRect(px - 6, bodyY - 2, 12, 14, '#cc2200');
-    // Jacket detail
-    drawPixelRect(px - 6, bodyY - 2, 2, 14, '#aa1100');
+    // Torso (rectangle, top-down)
+    ctx.fillStyle = '#cc2200';
+    ctx.fillRect(px - 5, y + 14, 10, 14);
+    // Jacket stripe
+    ctx.fillStyle = '#aa1100';
+    ctx.fillRect(px - 5, y + 14, 2, 14);
 
-    // Arms
+    // Arms reaching toward handlebars
     ctx.strokeStyle = '#cc2200';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(px - 6, bodyY + 4);
-    ctx.lineTo(px - 10, y + 6);
+    ctx.moveTo(px - 5, y + 16);
+    ctx.lineTo(px - 7, y + 6);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(px + 6, bodyY + 4);
-    ctx.lineTo(px + 10, y + 6);
+    ctx.moveTo(px + 5, y + 16);
+    ctx.lineTo(px + 7, y + 6);
     ctx.stroke();
 
-    // Head
-    drawPixelRect(px - 5, bodyY - 10, 10, 9, '#ffcc88');
-    // Hair (80s style!)
-    drawPixelRect(px - 6, bodyY - 14, 12, 5, '#442200');
-    drawPixelRect(px - 7, bodyY - 12, 2, 6, '#442200');
-    drawPixelRect(px + 5, bodyY - 12, 2, 6, '#442200');
+    // Head (circle, top-down)
+    ctx.fillStyle = '#442200'; // hair on top
+    ctx.beginPath();
+    ctx.arc(px, y + 10, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffcc88'; // face peeking
+    ctx.beginPath();
+    ctx.arc(px, y + 12, 4, 0, Math.PI);
+    ctx.fill();
 
     // Flashlight beam (from handlebars)
     if (battery > 0) {
@@ -917,7 +922,7 @@ function resetGame() {
     score = 0;
     lives = 3;
     battery = 100;
-    speed = baseSpeed;
+    speed = 0.8;
     difficulty = 1;
     frameCount = 0;
     shakeTimer = 0;
@@ -967,7 +972,7 @@ function spawnEnemy() {
     const pool = [];
     if (score >= 500) pool.push('zombie');
     if (score >= 1000) pool.push('ghost');
-    if (score >= 1500) pool.push('hand');
+    if (score >= 2000) pool.push('hand');
 
     const chosen = pool[Math.floor(Math.random() * pool.length)];
 
@@ -1126,17 +1131,15 @@ function tryJump() {
 }
 
 function handleInput() {
-    const moveSpeed = 6;
+    const accel = 0.4;
     let moving = false;
 
     if (keys['ArrowLeft'] || keys['KeyA']) {
-        player.x -= moveSpeed;
-        player.lean = Math.max(player.lean - 0.15, -1);
+        player.vx -= accel;
         moving = true;
     }
     if (keys['ArrowRight'] || keys['KeyD']) {
-        player.x += moveSpeed;
-        player.lean = Math.min(player.lean + 0.15, 1);
+        player.vx += accel;
         moving = true;
     }
 
@@ -1144,11 +1147,15 @@ function handleInput() {
     if (touchStartX !== null && touchMoveX !== null) {
         const dx = touchMoveX - touchStartX;
         if (Math.abs(dx) > 5) {
-            player.x += dx * 0.12;
-            player.lean = Math.max(-1, Math.min(1, dx * 0.01));
+            player.vx += dx * 0.04;
             moving = true;
         }
     }
+
+    // Inertia
+    player.vx *= 0.85;
+    player.x += player.vx;
+    player.lean = Math.max(-1, Math.min(1, player.vx * 0.3));
 
     if (!moving) {
         player.lean *= 0.85;
@@ -1180,9 +1187,9 @@ function update() {
     player.pedalPhase += speed * 0.05;
     player.wheelPhase += speed * 0.1;
 
-    // Difficulty scaling
-    difficulty = 1 + Math.floor(score / 200) * 0.15;
-    speed = baseSpeed + difficulty * 0.8 + (speedBoostTimer > 0 ? 3 : 0);
+    // Difficulty scaling — very slow, like Elektronika handheld
+    difficulty = 1 + Math.floor(score / 500) * 0.1;
+    speed = Math.min(4, baseSpeed + (difficulty - 1) * 0.8) + (speedBoostTimer > 0 ? 2 : 0);
 
     // Score
     score += Math.round(speed * 0.5);
@@ -1205,7 +1212,7 @@ function update() {
     pickupTimer++;
     treeTimer++;
 
-    const spawnRate = Math.max(30, 70 - difficulty * 5);
+    const spawnRate = Math.max(40, 120 - Math.floor(score / 500) * 10);
     if (obstacleTimer > spawnRate) {
         spawnObstacle();
         obstacleTimer = 0;

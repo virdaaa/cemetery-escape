@@ -250,6 +250,7 @@ canvas {
         <div class="gameover-score" id="final-score">0</div>
         <div class="hud-label">МЕТРОВ</div>
         <div class="gameover-best" id="best-score"></div>
+        <div class="hud-label" id="boss-count-label" style="color:#ff2d95; font-size:9px; margin-bottom:16px;"></div>
         <button class="menu-btn" id="btn-restart">ЕЩЁ РАЗ</button>
         <button class="menu-btn" style="background:linear-gradient(180deg,#7b2fff,#5500cc);box-shadow:0 0 20px rgba(123,47,255,0.5),0 4px 0 #3a0088;" id="btn-menu">МЕНЮ</button>
     </div>
@@ -281,6 +282,7 @@ const gameoverScreen = document.getElementById('screen-gameover');
 const finalScoreEl = document.getElementById('final-score');
 const bestScoreEl = document.getElementById('best-score');
 const stonesLabel = document.getElementById('stones-label');
+const bossCountLabel = document.getElementById('boss-count-label');
 
 // Audio context for retro sounds
 let audioCtx = null;
@@ -344,6 +346,22 @@ let lastTapTime = 0;
 let lastCheckpoint = 0;
 let heartTimer = 0;
 
+// Boss state
+let boss = null;
+let bossProjectiles = [];
+let bossSlowTimer = 0;
+let bossesKilled = 0;
+let nextBossScore = 5000;
+let bossFlashTimer = 0;
+
+const BOSS_DEFS = [
+    { name: 'СМОТРИТЕЛЬ', baseHP: 10, w: 60, h: 70, color: '#aa8833', atkInterval: 120 },
+    { name: 'ЖРЕЦ', baseHP: 15, w: 50, h: 70, color: '#4422aa', atkInterval: 90 },
+    { name: 'МЕРТВЕЦ-ГИГАНТ', baseHP: 20, w: 120, h: 90, color: '#336622', atkInterval: 180 },
+    { name: 'ВЕДЬМА', baseHP: 18, w: 50, h: 60, color: '#22aa44', atkInterval: 120 },
+    { name: 'КОСТЯНОЙ ДРАКОН', baseHP: 25, w: 140, h: 80, color: '#ccaa55', atkInterval: 180 }
+];
+
 // Try load best score
 try { bestScore = parseInt(localStorage.getItem('cemetery_best') || '0'); } catch(e) {}
 
@@ -373,6 +391,7 @@ let stars = [];
 let roadMarkings = [];
 let trees = [];
 let projectiles = [];
+// bossProjectiles defined in boss state section
 
 // Spawn timers
 let obstacleTimer = 0;
@@ -948,10 +967,10 @@ function drawDarkness() {
 function drawFullDarkness() {
     if (battery > 0) return;
     // Almost total darkness with tiny circle of vision
-    const vigGrad = ctx.createRadialGradient(player.x, player.y - player.jumpY, 30, player.x, player.y - player.jumpY, 150);
+    const vigGrad = ctx.createRadialGradient(player.x, player.y - player.jumpY, 120, player.x, player.y - player.jumpY, 300);
     vigGrad.addColorStop(0, 'rgba(0,0,0,0)');
-    vigGrad.addColorStop(0.5, 'rgba(0,0,0,0.7)');
-    vigGrad.addColorStop(1, 'rgba(0,0,0,0.92)');
+    vigGrad.addColorStop(0.5, 'rgba(0,0,0,0.5)');
+    vigGrad.addColorStop(1, 'rgba(0,0,0,0.8)');
     ctx.fillStyle = vigGrad;
     ctx.fillRect(0, 0, W, H);
 }
@@ -985,6 +1004,12 @@ function resetGame() {
     stones = 5;
     flashCooldown = 0;
     speedMultiplier = 1;
+    boss = null;
+    bossProjectiles = [];
+    bossSlowTimer = 0;
+    bossesKilled = 0;
+    nextBossScore = 5000;
+    bossFlashTimer = 0;
     obstacles = [];
     enemies = [];
     pickups = [];
@@ -1026,9 +1051,9 @@ function spawnEnemy() {
     const chosen = pool[Math.floor(Math.random() * pool.length)];
 
     if (chosen === 'zombie') {
-        enemies.push({ x, y: -30, type: 'zombie', subtype: Math.random() < 0.5 ? 0 : 1, vx: (Math.random()-0.5)*1, vy: speed * 0.3, phase: Math.random()*Math.PI*2, w: 20, h: 30 });
+        enemies.push({ x, y: -30, type: 'zombie', subtype: Math.random() < 0.5 ? 0 : 1, vx: (Math.random()-0.5)*0.5, vy: speed * 0.15, phase: Math.random()*Math.PI*2, w: 20, h: 30 });
     } else if (chosen === 'ghost') {
-        enemies.push({ x, y: -30, type: 'ghost', vx: Math.sin(Math.random()*Math.PI*2)*2, vy: speed * 0.5, phase: Math.random()*Math.PI*2, w: 24, h: 30 });
+        enemies.push({ x, y: -30, type: 'ghost', vx: Math.sin(Math.random()*Math.PI*2)*1, vy: speed * 0.25, phase: Math.random()*Math.PI*2, w: 24, h: 30 });
     } else if (chosen === 'hand') {
         enemies.push({ x, y: -30, type: 'hand', vy: 0, phase: 0, w: 16, h: 20, popTimer: 60 });
     }
@@ -1091,6 +1116,7 @@ function gameOver() {
     }
     finalScoreEl.textContent = score;
     bestScoreEl.textContent = `РЕКОРД: ${bestScore}`;
+    bossCountLabel.textContent = bossesKilled > 0 ? `БОССОВ: ${bossesKilled}` : '';
     hudEl.classList.add('hidden');
     gameoverScreen.classList.remove('hidden');
 }
@@ -1136,6 +1162,632 @@ function showToast(text) {
     el.textContent = text;
     document.getElementById('ui-overlay').appendChild(el);
     setTimeout(() => el.remove(), 1200);
+}
+
+// ========================================
+// BOSS SYSTEM
+// ========================================
+
+function spawnBoss() {
+    const cycle = Math.floor(bossesKilled / 5);
+    const idx = bossesKilled % 5;
+    const def = BOSS_DEFS[idx];
+    const extraHP = cycle * 10;
+    boss = {
+        type: idx,
+        name: def.name,
+        x: W / 2,
+        y: 130,
+        w: def.w,
+        h: def.h,
+        hp: def.baseHP + extraHP,
+        maxHP: def.baseHP + extraHP,
+        color: def.color,
+        phase: 0,
+        atkTimer: def.atkInterval,
+        atkInterval: def.atkInterval,
+        flashTimer: 0,
+        vx: 1,
+        // type-specific
+        teleportTimer: 0,
+        breathWarning: 0,
+        breathActive: 0,
+        breathX: W / 2,
+        crackWarning: 0,
+        crackActive: 0,
+        crackPositions: []
+    };
+    bossProjectiles = [];
+    bossSlowTimer = 60;
+    showToast(`⚔️ ${def.name}`);
+    playPowerup();
+}
+
+function updateBoss() {
+    if (!boss) return;
+    boss.phase += 0.03;
+    if (boss.flashTimer > 0) boss.flashTimer--;
+    if (bossSlowTimer > 0) bossSlowTimer--;
+
+    const spd = bossSlowTimer > 0 ? 0.3 : 1;
+
+    // Movement patterns per type
+    switch (boss.type) {
+        case 0: // Смотритель — side to side
+            boss.x += boss.vx * 1.5 * spd;
+            if (boss.x < 60 || boss.x > W - 60) boss.vx *= -1;
+            break;
+        case 1: // Жрец — teleport every 120 frames
+            boss.teleportTimer++;
+            if (boss.teleportTimer > 120) {
+                boss.teleportTimer = 0;
+                boss.x = 80 + Math.random() * (W - 160);
+            }
+            break;
+        case 2: // Гигант — slow movement
+            boss.x += boss.vx * 0.5 * spd;
+            if (boss.x < 80 || boss.x > W - 80) boss.vx *= -1;
+            break;
+        case 3: // Ведьма — fast erratic (stays in upper area)
+            boss.x += Math.sin(boss.phase * 3) * 3 * spd;
+            boss.y = 120 + Math.sin(boss.phase * 2) * 20;
+            break;
+        case 4: // Дракон — slow wide
+            boss.x += boss.vx * 0.8 * spd;
+            if (boss.x < 100 || boss.x > W - 100) boss.vx *= -1;
+            break;
+    }
+
+    // Attack timer
+    boss.atkTimer--;
+    if (boss.atkTimer <= 0 && bossSlowTimer <= 0) {
+        boss.atkTimer = boss.atkInterval;
+        bossAttack();
+    }
+
+    // Update crack warning/active for giant
+    if (boss.type === 2) {
+        if (boss.crackWarning > 0) {
+            boss.crackWarning--;
+            if (boss.crackWarning <= 0) boss.crackActive = 20;
+        }
+        if (boss.crackActive > 0) boss.crackActive--;
+    }
+
+    // Update breath for dragon
+    if (boss.type === 4) {
+        if (boss.breathWarning > 0) {
+            boss.breathWarning--;
+            if (boss.breathWarning <= 0) boss.breathActive = 40;
+        }
+        if (boss.breathActive > 0) boss.breathActive--;
+    }
+
+    // Update boss projectiles
+    bossProjectiles.forEach(bp => {
+        bp.x += bp.vx || 0;
+        bp.y += bp.vy || 0;
+        if (bp.phase !== undefined) bp.phase += 0.05;
+        // Witch homing
+        if (bp.homing) {
+            const dx = player.x - bp.x;
+            const dy = player.y - bp.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > 0) {
+                bp.vx += (dx / dist) * 0.15;
+                bp.vy += (dy / dist) * 0.15;
+                const maxV = 3;
+                const v = Math.sqrt(bp.vx * bp.vx + bp.vy * bp.vy);
+                if (v > maxV) { bp.vx = bp.vx / v * maxV; bp.vy = bp.vy / v * maxV; }
+            }
+        }
+    });
+    bossProjectiles = bossProjectiles.filter(bp => bp.y < H + 30 && bp.y > -30 && bp.x > -30 && bp.x < W + 30);
+
+    // Boss projectile vs player collision
+    const px = player.x;
+    const py = player.y - player.jumpY;
+    for (let i = bossProjectiles.length - 1; i >= 0; i--) {
+        const bp = bossProjectiles[i];
+        if (checkCollision(px, py, 18, 28, bp.x, bp.y, bp.w || 12, bp.h || 12)) {
+            hitPlayer();
+            bossProjectiles.splice(i, 1);
+            break;
+        }
+    }
+
+    // Player stones vs boss
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+        const pr = projectiles[i];
+        if (checkCollision(pr.x, pr.y, 6, 6, boss.x, boss.y, boss.w, boss.h)) {
+            boss.hp--;
+            boss.flashTimer = 8;
+            projectiles.splice(i, 1);
+            spawnParticle(pr.x, pr.y, '#ffcc00', (Math.random()-0.5)*4, -2, 15);
+            playHit();
+            if (boss.hp <= 0) {
+                killBoss();
+                return;
+            }
+        }
+    }
+
+    // Player stones vs witch fireballs
+    if (boss && boss.type === 3) {
+        for (let pi = projectiles.length - 1; pi >= 0; pi--) {
+            for (let bi = bossProjectiles.length - 1; bi >= 0; bi--) {
+                const pr = projectiles[pi];
+                const bp = bossProjectiles[bi];
+                if (pr && bp && checkCollision(pr.x, pr.y, 6, 6, bp.x, bp.y, 12, 12)) {
+                    spawnHitParticles(bp.x, bp.y);
+                    projectiles.splice(pi, 1);
+                    bossProjectiles.splice(bi, 1);
+                    break;
+                }
+            }
+        }
+    }
+
+    // Giant crack damage
+    if (boss && boss.type === 2 && boss.crackActive > 0) {
+        boss.crackPositions.forEach(cx => {
+            if (Math.abs(player.x - cx) < 20 && invincibleTimer <= 0) {
+                hitPlayer();
+            }
+        });
+    }
+
+    // Dragon breath damage
+    if (boss && boss.type === 4 && boss.breathActive > 0) {
+        const bx = boss.breathX;
+        if (Math.abs(player.x - bx) < 40 && player.y - player.jumpY < H - 50 && invincibleTimer <= 0) {
+            hitPlayer();
+        }
+    }
+}
+
+function bossAttack() {
+    if (!boss) return;
+    switch (boss.type) {
+        case 0: // Shovel throw
+            bossProjectiles.push({ x: boss.x, y: boss.y + 30, vx: 0, vy: 4, w: 10, h: 20, kind: 'shovel', phase: 0 });
+            break;
+        case 1: // Ghost wave (3 ghosts in fan)
+            for (let i = -1; i <= 1; i++) {
+                bossProjectiles.push({ x: boss.x, y: boss.y + 30, vx: i * 1.5, vy: 3, w: 16, h: 16, kind: 'minighost', phase: Math.random() * Math.PI * 2 });
+            }
+            break;
+        case 2: // Ground cracks
+            boss.crackPositions = [];
+            for (let i = 0; i < 3; i++) {
+                boss.crackPositions.push(W * 0.2 + Math.random() * (W * 0.6));
+            }
+            boss.crackWarning = 30;
+            break;
+        case 3: // Homing fireball
+            bossProjectiles.push({ x: boss.x, y: boss.y + 20, vx: 0, vy: 1.5, w: 14, h: 14, kind: 'fireball', homing: true, phase: 0 });
+            break;
+        case 4: // Breath + bones
+            boss.breathX = boss.x;
+            boss.breathWarning = 60;
+            // Side bones
+            bossProjectiles.push({ x: 20, y: boss.y + 20, vx: 2, vy: 3, w: 10, h: 10, kind: 'bone', phase: 0 });
+            bossProjectiles.push({ x: W - 20, y: boss.y + 20, vx: -2, vy: 3, w: 10, h: 10, kind: 'bone', phase: 0 });
+            break;
+    }
+}
+
+function killBoss() {
+    // Explosion particles
+    for (let i = 0; i < 30; i++) {
+        spawnParticle(boss.x, boss.y, ['#ff2d95', '#ffcc00', '#00ffcc', '#ff6600'][Math.floor(Math.random()*4)],
+            (Math.random()-0.5)*12, (Math.random()-0.5)*12, 30+Math.random()*30);
+    }
+    score += 500;
+    bossesKilled++;
+    nextBossScore += 5000;
+    playPowerup();
+    showToast(`+500 💀 ${boss.name} ПОВЕРЖЕН!`);
+    // Drop 3 pickups
+    for (let i = 0; i < 3; i++) {
+        const px = boss.x - 30 + i * 30;
+        const roll = Math.random();
+        const type = roll < 0.3 ? 0 : roll < 0.5 ? 3 : roll < 0.7 ? 4 : 1;
+        pickups.push({ x: px, y: boss.y, type, phase: Math.random()*Math.PI*2, w: 20, h: 20 });
+    }
+    shakeTimer = 20;
+    boss = null;
+    bossProjectiles = [];
+}
+
+function drawBoss() {
+    if (!boss) return;
+    const bx = Math.round(boss.x);
+    const by = Math.round(boss.y);
+
+    if (boss.flashTimer > 0 && Math.floor(boss.flashTimer / 2) % 2 === 0) {
+        ctx.globalAlpha = 0.5;
+    }
+
+    ctx.save();
+    switch (boss.type) {
+        case 0: // СМОТРИТЕЛЬ — man in cloak with lantern
+            // Cloak body
+            ctx.fillStyle = '#553311';
+            ctx.beginPath();
+            ctx.moveTo(bx - 20, by + 35);
+            ctx.lineTo(bx - 15, by - 15);
+            ctx.lineTo(bx + 15, by - 15);
+            ctx.lineTo(bx + 20, by + 35);
+            ctx.fill();
+            // Cloak highlight
+            ctx.fillStyle = '#664422';
+            ctx.fillRect(bx - 8, by - 12, 4, 40);
+            // Head
+            ctx.fillStyle = '#cc9966';
+            ctx.beginPath();
+            ctx.arc(bx, by - 22, 10, 0, Math.PI * 2);
+            ctx.fill();
+            // Hat
+            ctx.fillStyle = '#332211';
+            ctx.fillRect(bx - 14, by - 32, 28, 6);
+            ctx.fillRect(bx - 8, by - 42, 16, 12);
+            // Eyes
+            ctx.fillStyle = '#ff4400';
+            ctx.fillRect(bx - 5, by - 24, 3, 3);
+            ctx.fillRect(bx + 2, by - 24, 3, 3);
+            // Lantern (in right hand)
+            ctx.fillStyle = '#ffcc00';
+            ctx.fillRect(bx + 18, by - 5, 8, 12);
+            ctx.fillStyle = '#ffee88';
+            ctx.globalAlpha = 0.3 + Math.sin(boss.phase * 4) * 0.2;
+            ctx.beginPath();
+            ctx.arc(bx + 22, by, 16, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            // Shovel (in left hand)
+            ctx.fillStyle = '#888';
+            ctx.fillRect(bx - 22, by - 10, 3, 30);
+            ctx.fillStyle = '#666';
+            ctx.fillRect(bx - 25, by - 14, 9, 6);
+            break;
+
+        case 1: // ЖРЕЦ — hooded figure in black robe
+            // Robe
+            ctx.fillStyle = '#1a0033';
+            ctx.beginPath();
+            ctx.moveTo(bx - 22, by + 35);
+            ctx.lineTo(bx - 18, by - 10);
+            ctx.quadraticCurveTo(bx, by - 30, bx + 18, by - 10);
+            ctx.lineTo(bx + 22, by + 35);
+            ctx.fill();
+            // Hood
+            ctx.fillStyle = '#220044';
+            ctx.beginPath();
+            ctx.arc(bx, by - 18, 14, Math.PI, Math.PI * 2);
+            ctx.fill();
+            ctx.fillRect(bx - 14, by - 18, 28, 8);
+            // Face shadow
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.ellipse(bx, by - 14, 8, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Glowing eyes
+            ctx.fillStyle = '#aa00ff';
+            ctx.fillRect(bx - 5, by - 16, 3, 3);
+            ctx.fillRect(bx + 2, by - 16, 3, 3);
+            // Purple glow
+            ctx.globalAlpha = 0.15 + Math.sin(boss.phase * 3) * 0.1;
+            ctx.fillStyle = '#7b2fff';
+            ctx.beginPath();
+            ctx.arc(bx, by, 35, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            // Hands
+            ctx.fillStyle = '#443366';
+            ctx.fillRect(bx - 24, by + 5, 6, 4);
+            ctx.fillRect(bx + 18, by + 5, 6, 4);
+            break;
+
+        case 2: // МЕРТВЕЦ-ГИГАНТ — huge zombie
+            // Legs
+            ctx.fillStyle = '#224411';
+            const legOff = Math.sin(boss.phase * 2) * 3;
+            ctx.fillRect(bx - 25 + legOff, by + 30, 18, 16);
+            ctx.fillRect(bx + 8 - legOff, by + 30, 18, 16);
+            // Body
+            ctx.fillStyle = '#336622';
+            ctx.fillRect(bx - 35, by - 15, 70, 48);
+            // Ribs visible
+            ctx.fillStyle = '#224411';
+            for (let i = 0; i < 4; i++) {
+                ctx.fillRect(bx - 25, by - 5 + i * 10, 50, 3);
+            }
+            // Arms
+            const armW = Math.sin(boss.phase * 2) * 6;
+            ctx.fillStyle = '#447733';
+            ctx.fillRect(bx - 50, by - 5 + armW, 18, 8);
+            ctx.fillRect(bx + 32, by - 5 - armW, 18, 8);
+            // Head
+            ctx.fillStyle = '#448833';
+            ctx.beginPath();
+            ctx.arc(bx, by - 25, 18, 0, Math.PI * 2);
+            ctx.fill();
+            // Eyes
+            ctx.fillStyle = '#ff0000';
+            ctx.fillRect(bx - 10, by - 30, 6, 5);
+            ctx.fillRect(bx + 4, by - 30, 6, 5);
+            // Mouth
+            ctx.fillStyle = '#220000';
+            ctx.fillRect(bx - 8, by - 20, 16, 4);
+            // Teeth
+            ctx.fillStyle = '#eecc88';
+            for (let i = 0; i < 4; i++) ctx.fillRect(bx - 6 + i * 4, by - 20, 2, 3);
+            break;
+
+        case 3: // ВЕДЬМА — floating witch
+            // Hover effect
+            const hover = Math.sin(boss.phase * 3) * 5;
+            // Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath();
+            ctx.ellipse(bx, by + 35, 20, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Dress
+            ctx.fillStyle = '#115522';
+            ctx.beginPath();
+            ctx.moveTo(bx - 20, by + 25 + hover);
+            ctx.lineTo(bx - 10, by - 10 + hover);
+            ctx.lineTo(bx + 10, by - 10 + hover);
+            ctx.lineTo(bx + 20, by + 25 + hover);
+            ctx.fill();
+            // Green glow
+            ctx.globalAlpha = 0.2;
+            ctx.fillStyle = '#00ff44';
+            ctx.beginPath();
+            ctx.arc(bx, by + hover, 30, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            // Head
+            ctx.fillStyle = '#88cc44';
+            ctx.beginPath();
+            ctx.arc(bx, by - 16 + hover, 10, 0, Math.PI * 2);
+            ctx.fill();
+            // Hat
+            ctx.fillStyle = '#113311';
+            ctx.beginPath();
+            ctx.moveTo(bx - 16, by - 22 + hover);
+            ctx.lineTo(bx, by - 48 + hover);
+            ctx.lineTo(bx + 16, by - 22 + hover);
+            ctx.fill();
+            ctx.fillRect(bx - 18, by - 24 + hover, 36, 4);
+            // Eyes
+            ctx.fillStyle = '#00ff00';
+            ctx.fillRect(bx - 5, by - 18 + hover, 3, 3);
+            ctx.fillRect(bx + 2, by - 18 + hover, 3, 3);
+            // Hands with magic
+            ctx.fillStyle = '#88cc44';
+            ctx.fillRect(bx - 22, by + hover, 5, 4);
+            ctx.fillRect(bx + 17, by + hover, 5, 4);
+            // Magic sparkle in hands
+            ctx.fillStyle = '#00ff44';
+            const sp = Math.sin(boss.phase * 6) * 3;
+            ctx.beginPath();
+            ctx.arc(bx - 20 + sp, by - 2 + hover, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(bx + 20 - sp, by - 2 + hover, 3, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+
+        case 4: // КОСТЯНОЙ ДРАКОН — bone dragon
+            // Spine/body
+            ctx.fillStyle = '#ccbb88';
+            ctx.beginPath();
+            ctx.moveTo(bx - 50, by + 10);
+            for (let i = 0; i < 8; i++) {
+                ctx.lineTo(bx - 50 + i * 14, by - 5 + Math.sin(boss.phase * 2 + i) * 5);
+            }
+            ctx.lineTo(bx + 50, by + 10);
+            ctx.fill();
+            // Ribs
+            ctx.strokeStyle = '#bbaa77';
+            ctx.lineWidth = 2;
+            for (let i = -3; i <= 3; i++) {
+                ctx.beginPath();
+                ctx.moveTo(bx + i * 12, by - 2 + Math.sin(boss.phase * 2 + i) * 3);
+                ctx.lineTo(bx + i * 12 + (i < 0 ? -8 : 8), by + 18);
+                ctx.stroke();
+            }
+            // Wings (skeletal)
+            ctx.strokeStyle = '#aa9966';
+            ctx.lineWidth = 2;
+            const wingPhase = Math.sin(boss.phase * 2) * 8;
+            // Left wing
+            ctx.beginPath();
+            ctx.moveTo(bx - 30, by - 5);
+            ctx.lineTo(bx - 60, by - 25 - wingPhase);
+            ctx.lineTo(bx - 50, by + 5 - wingPhase);
+            ctx.stroke();
+            // Right wing
+            ctx.beginPath();
+            ctx.moveTo(bx + 30, by - 5);
+            ctx.lineTo(bx + 60, by - 25 - wingPhase);
+            ctx.lineTo(bx + 50, by + 5 - wingPhase);
+            ctx.stroke();
+            // Skull head
+            ctx.fillStyle = '#ddd';
+            ctx.beginPath();
+            ctx.ellipse(bx, by - 18, 14, 10, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Jaw
+            ctx.fillStyle = '#bbb';
+            ctx.beginPath();
+            ctx.ellipse(bx, by - 8, 10, 5, 0, 0, Math.PI);
+            ctx.fill();
+            // Teeth
+            ctx.fillStyle = '#eee';
+            for (let i = -3; i <= 3; i++) {
+                ctx.fillRect(bx + i * 3 - 1, by - 12, 2, 4);
+            }
+            // Eye sockets
+            ctx.fillStyle = '#ff3300';
+            ctx.beginPath();
+            ctx.arc(bx - 5, by - 20, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(bx + 5, by - 20, 4, 0, Math.PI * 2);
+            ctx.fill();
+            // Horns
+            ctx.fillStyle = '#aa9966';
+            ctx.beginPath();
+            ctx.moveTo(bx - 10, by - 25);
+            ctx.lineTo(bx - 20, by - 40);
+            ctx.lineTo(bx - 6, by - 22);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(bx + 10, by - 25);
+            ctx.lineTo(bx + 20, by - 40);
+            ctx.lineTo(bx + 6, by - 22);
+            ctx.fill();
+            break;
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+
+    // Draw boss projectiles
+    bossProjectiles.forEach(bp => {
+        switch (bp.kind) {
+            case 'shovel':
+                ctx.save();
+                ctx.translate(bp.x, bp.y);
+                ctx.rotate(bp.phase * 4);
+                ctx.fillStyle = '#888';
+                ctx.fillRect(-2, -10, 4, 16);
+                ctx.fillStyle = '#666';
+                ctx.fillRect(-5, -12, 10, 4);
+                ctx.restore();
+                break;
+            case 'minighost':
+                ctx.globalAlpha = 0.6 + Math.sin(bp.phase * 3) * 0.2;
+                ctx.fillStyle = '#aaccff';
+                ctx.beginPath();
+                ctx.arc(bp.x, bp.y, 8, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#000';
+                ctx.fillRect(bp.x - 3, bp.y - 2, 2, 2);
+                ctx.fillRect(bp.x + 1, bp.y - 2, 2, 2);
+                ctx.globalAlpha = 1;
+                break;
+            case 'fireball':
+                ctx.fillStyle = '#00ff44';
+                ctx.beginPath();
+                ctx.arc(bp.x, bp.y, 7, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#88ff88';
+                ctx.beginPath();
+                ctx.arc(bp.x, bp.y, 4, 0, Math.PI * 2);
+                ctx.fill();
+                // Trail
+                ctx.globalAlpha = 0.3;
+                ctx.fillStyle = '#00ff44';
+                ctx.beginPath();
+                ctx.arc(bp.x - bp.vx * 2, bp.y - bp.vy * 2, 5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+                break;
+            case 'bone':
+                ctx.save();
+                ctx.translate(bp.x, bp.y);
+                ctx.rotate(bp.phase * 5);
+                ctx.fillStyle = '#ddd';
+                ctx.fillRect(-5, -2, 10, 4);
+                ctx.beginPath();
+                ctx.arc(-5, 0, 3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(5, 0, 3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+                break;
+        }
+    });
+
+    // Giant ground cracks
+    if (boss && boss.type === 2) {
+        if (boss.crackWarning > 0) {
+            ctx.globalAlpha = 0.3 + Math.sin(frameCount * 0.5) * 0.2;
+            ctx.strokeStyle = '#ff4400';
+            ctx.lineWidth = 3;
+            boss.crackPositions.forEach(cx => {
+                ctx.beginPath();
+                ctx.moveTo(cx, boss.y + 40);
+                ctx.lineTo(cx, H);
+                ctx.stroke();
+            });
+            ctx.globalAlpha = 1;
+        }
+        if (boss.crackActive > 0) {
+            ctx.fillStyle = '#ff6600';
+            ctx.globalAlpha = boss.crackActive / 20;
+            boss.crackPositions.forEach(cx => {
+                ctx.fillRect(cx - 10, boss.y + 40, 20, H - boss.y - 40);
+            });
+            ctx.globalAlpha = 1;
+        }
+    }
+
+    // Dragon breath
+    if (boss && boss.type === 4) {
+        if (boss.breathWarning > 0) {
+            ctx.globalAlpha = 0.2 + Math.sin(frameCount * 0.4) * 0.15;
+            ctx.strokeStyle = '#ff6600';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(boss.breathX - 30, boss.y + 40);
+            ctx.lineTo(boss.breathX - 50, H);
+            ctx.moveTo(boss.breathX + 30, boss.y + 40);
+            ctx.lineTo(boss.breathX + 50, H);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+        }
+        if (boss.breathActive > 0) {
+            const ba = boss.breathActive / 40;
+            ctx.globalAlpha = ba * 0.6;
+            const grad = ctx.createLinearGradient(boss.breathX, boss.y + 40, boss.breathX, H);
+            grad.addColorStop(0, '#ff6600');
+            grad.addColorStop(0.5, '#ff3300');
+            grad.addColorStop(1, '#aa0000');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.moveTo(boss.breathX - 25, boss.y + 40);
+            ctx.lineTo(boss.breathX - 55, H);
+            ctx.lineTo(boss.breathX + 55, H);
+            ctx.lineTo(boss.breathX + 25, boss.y + 40);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+    }
+
+    // HP bar
+    const barW = 200;
+    const barH = 8;
+    const barX = (W - barW) / 2;
+    const barY = 10;
+    ctx.fillStyle = '#1a0033';
+    ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+    ctx.fillStyle = '#330011';
+    ctx.fillRect(barX, barY, barW, barH);
+    const hpRatio = boss.hp / boss.maxHP;
+    const hpColor = hpRatio > 0.5 ? '#ff2d95' : hpRatio > 0.25 ? '#ff6600' : '#ff0000';
+    ctx.fillStyle = hpColor;
+    ctx.fillRect(barX, barY, barW * hpRatio, barH);
+    // Boss name
+    ctx.fillStyle = '#fff';
+    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(boss.name, W / 2, barY + barH + 12);
+    ctx.textAlign = 'start';
 }
 
 // ========================================
@@ -1324,8 +1976,8 @@ function update() {
     player.wheelPhase += speed * 0.1;
 
     // Difficulty scaling — very slow, like Elektronika handheld
-    difficulty = 1 + Math.floor(score / 500) * 0.1;
-    speed = (Math.min(4, baseSpeed + (difficulty - 1) * 0.8) + (speedBoostTimer > 0 ? 2 : 0)) * speedMultiplier;
+    difficulty = 1 + Math.floor(score / 500) * 0.05;
+    speed = (Math.min(3, baseSpeed + (difficulty - 1) * 0.8) + (speedBoostTimer > 0 ? 1.5 : 0)) * speedMultiplier;
 
     // Score — accumulate fractional points
     scoreFrac += speed * 0.5;
@@ -1348,8 +2000,18 @@ function update() {
         playPowerup();
     }
 
-    // Battery drain
-    battery -= 0.03 * difficulty;
+    // Boss spawn check
+    if (!boss && score >= nextBossScore) {
+        spawnBoss();
+    }
+
+    // Override speed during boss fight
+    if (boss) {
+        speed = bossSlowTimer > 0 ? 0.3 : 0.5;
+    }
+
+    // Battery drain (slow — 3x less than before)
+    battery -= 0.01 * difficulty;
     if (battery < 0) battery = 0;
 
     // Timers
@@ -1361,6 +2023,9 @@ function update() {
 
     handleInput();
 
+    // Boss update
+    if (boss) updateBoss();
+
     // Spawn timers
     obstacleTimer++;
     enemyTimer++;
@@ -1368,16 +2033,16 @@ function update() {
     treeTimer++;
     heartTimer++;
 
-    const spawnRate = Math.max(40, 120 - Math.floor(score / 500) * 10);
+    const spawnRate = Math.max(100, 160 - Math.floor(score / 500) * 8);
     if (obstacleTimer > spawnRate) {
         spawnObstacle();
         obstacleTimer = 0;
     }
-    if (enemyTimer > Math.max(60, 130 - difficulty * 10)) {
+    if (!boss && enemyTimer > Math.max(60, 130 - difficulty * 10)) {
         spawnEnemy();
         enemyTimer = 0;
     }
-    if (pickupTimer > 180) {
+    if (pickupTimer > 150) {
         spawnPickup();
         pickupTimer = 0;
     }
@@ -1399,17 +2064,17 @@ function update() {
     obstacles.forEach(o => { o.y += speed; });
     obstacles = obstacles.filter(o => o.y < H + 50);
 
-    // Update enemies
+    // Update enemies (slow drift)
     enemies.forEach(e => {
         e.phase += 0.05;
         if (e.type === 'zombie') {
-            e.y += speed + e.vy;
-            e.x += Math.sin(e.phase * 2) * 0.5 + e.vx;
+            e.y += speed * 0.5 + e.vy;
+            e.x += Math.sin(e.phase * 2) * 0.3 + e.vx;
         } else if (e.type === 'ghost') {
-            e.y += speed + e.vy;
-            e.x += Math.sin(e.phase * 1.5) * 3;
+            e.y += speed * 0.5 + e.vy;
+            e.x += Math.sin(e.phase * 1.5) * 1.5;
         } else if (e.type === 'hand') {
-            e.y += speed;
+            e.y += speed * 0.5;
             if (e.popTimer > 0) e.popTimer--;
         }
     });
@@ -1607,6 +2272,9 @@ function render() {
 
     // Draw objects behind player
     allObjects.filter(o => o.y < player.y).forEach(o => o.draw());
+
+    // Draw boss (always behind player since boss is at top)
+    if (boss) drawBoss();
 
     // Draw player
     drawBike(player.x, player.y, player.lean, player.pedalPhase, player.jumpY, invincibleTimer > 0);

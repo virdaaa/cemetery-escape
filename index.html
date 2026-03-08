@@ -967,10 +967,10 @@ function drawDarkness() {
 function drawFullDarkness() {
     if (battery > 0) return;
     // Almost total darkness with tiny circle of vision
-    const vigGrad = ctx.createRadialGradient(player.x, player.y - player.jumpY, 30, player.x, player.y - player.jumpY, 150);
+    const vigGrad = ctx.createRadialGradient(player.x, player.y - player.jumpY, 120, player.x, player.y - player.jumpY, 300);
     vigGrad.addColorStop(0, 'rgba(0,0,0,0)');
-    vigGrad.addColorStop(0.5, 'rgba(0,0,0,0.7)');
-    vigGrad.addColorStop(1, 'rgba(0,0,0,0.92)');
+    vigGrad.addColorStop(0.5, 'rgba(0,0,0,0.5)');
+    vigGrad.addColorStop(1, 'rgba(0,0,0,0.8)');
     ctx.fillStyle = vigGrad;
     ctx.fillRect(0, 0, W, H);
 }
@@ -1051,9 +1051,9 @@ function spawnEnemy() {
     const chosen = pool[Math.floor(Math.random() * pool.length)];
 
     if (chosen === 'zombie') {
-        enemies.push({ x, y: -30, type: 'zombie', subtype: Math.random() < 0.5 ? 0 : 1, vx: (Math.random()-0.5)*1, vy: speed * 0.3, phase: Math.random()*Math.PI*2, w: 20, h: 30 });
+        enemies.push({ x, y: -30, type: 'zombie', subtype: Math.random() < 0.5 ? 0 : 1, vx: (Math.random()-0.5)*0.5, vy: speed * 0.15, phase: Math.random()*Math.PI*2, w: 20, h: 30 });
     } else if (chosen === 'ghost') {
-        enemies.push({ x, y: -30, type: 'ghost', vx: Math.sin(Math.random()*Math.PI*2)*2, vy: speed * 0.5, phase: Math.random()*Math.PI*2, w: 24, h: 30 });
+        enemies.push({ x, y: -30, type: 'ghost', vx: Math.sin(Math.random()*Math.PI*2)*1, vy: speed * 0.25, phase: Math.random()*Math.PI*2, w: 24, h: 30 });
     } else if (chosen === 'hand') {
         enemies.push({ x, y: -30, type: 'hand', vy: 0, phase: 0, w: 16, h: 20, popTimer: 60 });
     }
@@ -1177,7 +1177,7 @@ function spawnBoss() {
         type: idx,
         name: def.name,
         x: W / 2,
-        y: 80,
+        y: 130,
         w: def.w,
         h: def.h,
         hp: def.baseHP + extraHP,
@@ -1228,9 +1228,9 @@ function updateBoss() {
             boss.x += boss.vx * 0.5 * spd;
             if (boss.x < 80 || boss.x > W - 80) boss.vx *= -1;
             break;
-        case 3: // Ведьма — fast erratic
+        case 3: // Ведьма — fast erratic (stays in upper area)
             boss.x += Math.sin(boss.phase * 3) * 3 * spd;
-            boss.y = 70 + Math.sin(boss.phase * 2) * 20;
+            boss.y = 120 + Math.sin(boss.phase * 2) * 20;
             break;
         case 4: // Дракон — slow wide
             boss.x += boss.vx * 0.8 * spd;
@@ -1976,8 +1976,8 @@ function update() {
     player.wheelPhase += speed * 0.1;
 
     // Difficulty scaling — very slow, like Elektronika handheld
-    difficulty = 1 + Math.floor(score / 500) * 0.1;
-    speed = (Math.min(4, baseSpeed + (difficulty - 1) * 0.8) + (speedBoostTimer > 0 ? 2 : 0)) * speedMultiplier;
+    difficulty = 1 + Math.floor(score / 500) * 0.05;
+    speed = (Math.min(3, baseSpeed + (difficulty - 1) * 0.8) + (speedBoostTimer > 0 ? 1.5 : 0)) * speedMultiplier;
 
     // Score — accumulate fractional points
     scoreFrac += speed * 0.5;
@@ -2010,8 +2010,8 @@ function update() {
         speed = bossSlowTimer > 0 ? 0.3 : 0.5;
     }
 
-    // Battery drain
-    battery -= 0.03 * difficulty;
+    // Battery drain (slow — 3x less than before)
+    battery -= 0.01 * difficulty;
     if (battery < 0) battery = 0;
 
     // Timers
@@ -2033,7 +2033,7 @@ function update() {
     treeTimer++;
     heartTimer++;
 
-    const spawnRate = Math.max(40, 120 - Math.floor(score / 500) * 10);
+    const spawnRate = Math.max(100, 160 - Math.floor(score / 500) * 8);
     if (obstacleTimer > spawnRate) {
         spawnObstacle();
         obstacleTimer = 0;
@@ -2042,7 +2042,7 @@ function update() {
         spawnEnemy();
         enemyTimer = 0;
     }
-    if (pickupTimer > 180) {
+    if (pickupTimer > 150) {
         spawnPickup();
         pickupTimer = 0;
     }
@@ -2064,17 +2064,17 @@ function update() {
     obstacles.forEach(o => { o.y += speed; });
     obstacles = obstacles.filter(o => o.y < H + 50);
 
-    // Update enemies
+    // Update enemies (slow drift)
     enemies.forEach(e => {
         e.phase += 0.05;
         if (e.type === 'zombie') {
-            e.y += speed + e.vy;
-            e.x += Math.sin(e.phase * 2) * 0.5 + e.vx;
+            e.y += speed * 0.5 + e.vy;
+            e.x += Math.sin(e.phase * 2) * 0.3 + e.vx;
         } else if (e.type === 'ghost') {
-            e.y += speed + e.vy;
-            e.x += Math.sin(e.phase * 1.5) * 3;
+            e.y += speed * 0.5 + e.vy;
+            e.x += Math.sin(e.phase * 1.5) * 1.5;
         } else if (e.type === 'hand') {
-            e.y += speed;
+            e.y += speed * 0.5;
             if (e.popTimer > 0) e.popTimer--;
         }
     });
